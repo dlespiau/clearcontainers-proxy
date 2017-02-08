@@ -15,72 +15,57 @@
 // Package api defines the API cc-proxy exposes to clients, processes
 // connecting to the proxy AF_UNIX socket.
 //
-// This package contains the low level definitions of the protocol, the message
+// This package contains the low level definitions of the protocol, frame
 // structure and the various payloads that can be sent and received.
 //
-// The proxy protocol is composed of messages: requests and responses. These
-// form a small RPC protocol, requests being similar to a function call and
-// responses encoding the result of the call.
+// The proxy protocol is composed of commands, responses and notifications.
+// They all share the same frame structure: a header followed by an optional
+// payload.
 //
-// Each message is composed of a header and some optional data:
+// • Commands are always initiated by a client, never by the proxy itself.
 //
-//  ┌────────────────┬────────────────┬──────────────────────────────┐
-//  │  Data Length   │    Reserved    │  Data (request or response)  │
-//  │   (32 bits)    │    (32 bits)   │     (data length bytes)      │
-//  └────────────────┴────────────────┴──────────────────────────────┘
+// • Responses are sent by the proxy to acknowledge commands.
 //
-// - Data Length is in bytes and encoded in network order.
+// • Notifications are sent by either the proxy or clients and do not generate
+// responses.
 //
-// - Reserved is reserved for future use.
+// The frame format is illustrated below:
 //
-// - Data is the JSON-encoded request or response data
+//                      1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3
+//  0 1 2 3 4 5 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+//  ┌───────────────────────────┬───────────────┬───────────────┐
+//  │          Version          │ Header Length │   Reserved    │
+//  ├───────────────────────────┼───────┬───────┼───────────────┤
+//  │          Reserved         │ Res.  │ Type  │    Opcode     │
+//  ├───────────────────────────┴───────┴───────┴───────────────┤
+//  │                      Payload Length                       │
+//  ├───────────────────────────────────────────────────────────┤
+//  │                                                           │
+//  │                         Payload                           │
+//  │                                                           │
+//  │      (variable length, optional and opcode-specific)      │
+//  │                                                           │
+//  └───────────────────────────────────────────────────────────┘
 //
-// On top of of this request/response mechanism, the proxy defines payloads,
-// which are effectively the various function calls defined in the API.
+// All header fields are encoded in network order (big endian).
 //
-// Requests have 2 fields: the payload id (function name) and its data
-// (function argument(s))
+// • Version (16 bits) is the proxy protocol version. See api.Version for
+// details about what information it encodes.
 //
-//  type Request struct {
-//      Id    string          `json:"id"`
-//      Data *json.RawMessage `json:"data,omitempty"`
-//  }
+// • Header Length (8 bits) is the length of the header in number of 32 bits
+// words.  Header Length is greater or equal to 3 (12 bytes).
 //
-// Responses have 3 fields: success, error and data.
+// • Type (4 bits) is the frame type: command (0x0), response (0x1),
+// stream (0x2) or notification (0x3).
 //
-//  type Response struct {
-//      Success bool                   `json:"success"`
-//      Error   string                 `json:"error,omitempty"`
-//      Data    map[string]interface{} `json:"data,omitempty"`
-//  }
+// • Opcode (16 bits) specifies the kind of command, response, stream or
+// notification this frame represents. In conjunction with Type, this field
+// will dictate the payload content.
 //
-// Unsurprisingly, the response has the result of a command, with success
-// indicating if the request has succeeded for not. If success is true, the
-// response can carry additional return values in data. If success if false,
-// error will contain an error string suitable for reporting the error to a
-// user.
+// • Payload Length (32 bits) is in bytes and encoded in network order.
 //
-// As a concrete example, here is an exchange between a client (runtime) and
-// the proxy:
+// • Payload is the command, response or notification optional data. Most
+// payloads are JSON encoded but some commands will send
 //
-//  runtime → proxy
-//  {
-//    "id": "hello",
-//    "data": {
-//      "containerId": "foo",
-//      "ctlSerial": "/tmp/sh.hyper.channel.0.sock",
-//      "ioSerial": "/tmp/sh.hyper.channel.1.sock"
-//    }
-//  }
-//
-//  proxy → runtime
-//  {
-//    "success":true
-//  }
-//
-// - The client starts by calling the hello payload, registered the container
-// foo and asking the proxy to connect to hyperstart communication channels
-// given
-//
-// - The proxy answers the function call has succeeded
+// • Reserved fields are reserved for future use and must be zeroed.
 package api
