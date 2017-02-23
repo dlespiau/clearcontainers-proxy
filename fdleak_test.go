@@ -195,7 +195,7 @@ func (d *FdLeakDetector) Compare(w io.Writer, a, b *FdSnapshot) bool {
 
 		if aInfo.Fd == bInfo.Fd {
 			// File descriptor found in both snapshots
-			equal = equal && aInfo.equal(bInfo)
+			equal = aInfo.equal(bInfo)
 			i++
 			j++
 
