@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 )
 
 // minHeaderLength is the length of the header in the version 2 of protocol.
@@ -138,8 +139,7 @@ func WriteFrame(w io.Writer, frame *Frame) error {
 	}
 
 	// Prepare the header.
-	len := minHeaderLength + header.PayloadLength
-	buf := make([]byte, len)
+	buf := make([]byte, minHeaderLength)
 	binary.BigEndian.PutUint16(buf[0:2], uint16(header.Version))
 	buf[2] = byte(header.HeaderLength / 4)
 	flags := byte(0)
@@ -150,17 +150,18 @@ func WriteFrame(w io.Writer, frame *Frame) error {
 	buf[7] = byte(header.Opcode)
 	binary.BigEndian.PutUint32(buf[8:8+4], uint32(header.PayloadLength))
 
-	// Write payload if needed
-	if header.PayloadLength > 0 {
-		copy(buf[minHeaderLength:], frame.Payload[0:header.PayloadLength])
-	}
+	buffers := make(net.Buffers, 2)
+	buffers[0] = buf
+	buffers[1] = frame.Payload
 
-	n, err := w.Write(buf)
+	n, err := buffers.WriteTo(w)
+
 	if err != nil {
 		return err
 	}
 
-	if n != len {
+	len := minHeaderLength + header.PayloadLength
+	if n != int64(len) {
 		return errors.New("frame: couldn't write frame")
 	}
 
